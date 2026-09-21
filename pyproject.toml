@@ -32,6 +32,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
 python_version = "3.13"
+platform = "linux"
 strict = true
 files = ["src"]
 
