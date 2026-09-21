@@ -2,9 +2,9 @@
 
 Evidence-first repository intelligence backend for **SourceLens**. This README
 covers what exists today: **Milestone 1 — Repository Intelligence**,
-**Milestone 2 — Search** and **Milestone 3 — AI Agent**. Architecture
-intelligence and dependency tracing are later milestones and are not
-implemented yet.
+**Milestone 2 — Search**, **Milestone 3 — AI Agent** and
+**Milestone 5 — Architecture Intelligence**. Dependency/call tracing
+(Milestone 6) is not implemented yet.
 
 ## What Milestone 1 does
 
@@ -110,6 +110,40 @@ endpoint keeps working. The whole graph — tool loop, evidence dedup,
 iteration cap — is independently tested with a scripted fake chat model, the
 same offline-first pattern used for embeddings in Milestone 2.
 
+## What Milestone 5 does
+
+The architecture graph (`ArchitectureGraph`) is never built by the LLM: it's
+computed on demand from facts Milestones 1–2 already persisted (files,
+symbols, imports), plus the repository's own manifests. Every node/edge
+carries at least one `Evidence(file, line, reason, origin)` and a confidence
+score — the domain model enforces this (see
+`sourcelens.architecture.graph.GraphBuilder`), so nothing in the graph is
+asserted without a citation.
+
+```
+module nodes ---- imports (heuristic token match) ---- module nodes
+   |
+component nodes (controller/service/repository/worker/authentication)
+   |          classified from decorators (@app.get, @celery_app.task — high
+   |          confidence) or name suffixes (*Service, *Repository — lower)
+   v
+infrastructure nodes (database/cache/queue/external_api/infrastructure)
+   detected from Dockerfiles, docker-compose service images (strongest
+   evidence) and dependency manifests, plus usage patterns inside a
+   component's own source (redis.Redis(), session.query(...), httpx.get(...))
+```
+
+This computed-on-demand design means detector changes apply retroactively to
+any past analysis without re-ingesting it — the graph is a pure view, not
+stored state. Test code (`tests/`, `test_*.py`, `*.spec.ts`, …) is excluded
+before classification, so a test function that happens to mention "jwt" in
+its name doesn't get misclassified as an authentication component.
+
+This is a heuristic baseline, not a resolved call graph — that's Milestone 6.
+An import edge cites the actual import statement but only *approximately*
+matches it to a module by name; treat low-confidence edges as leads, not
+certainties, exactly as their `confidence` field signals.
+
 ## Architecture
 
 - **API** (`sourcelens.main`): FastAPI app exposing submission and inspection
@@ -162,6 +196,8 @@ All endpoints are under `/api/v1`.
 | `GET /analyses/{id}/search?q=&k=&strategy=` | Hybrid code search. `strategy` is `semantic`, `lexical`, `hybrid` or `hybrid_rerank` (default). Returns chunks with file/line citations and per-component scores. |
 | `POST /analyses/{id}/chat` | Ask a grounded question. Body `{"question": "...", "conversation_id": null}`. Returns the answer plus citations; omit `conversation_id` to start a new thread, pass it back to continue one. |
 | `GET /analyses/{id}/chat/stream?q=&conversation_id=` | Same as above, streamed as SSE events: `tool_call`, `evidence`, `answer`, then `done` (with the conversation id). |
+| `GET /analyses/{id}/architecture` | The full architecture graph: nodes and edges, each with its evidence and confidence. |
+| `GET /analyses/{id}/architecture/components/{component_id}` | One component's evidence plus its incoming/outgoing dependency edges. |
 
 Errors are returned as `application/problem+json` with a `request_id` that
 matches the `X-Request-ID` response header and the structured logs.
@@ -190,6 +226,12 @@ RUN_INTEGRATION=1 uv run pytest            # + integration tests (needs postgres
 Integration tests cover idempotent submission, lease-based job redelivery,
 snapshot isolation between analyses, the ingestion task end to end (against a
 fake clone step, so they don't depend on network access), lexical/semantic/
-hybrid retrieval and evaluation against real Postgres/pgvector, and the
-agent's tool loop, grounding and conversation persistence against a scripted
-chat model (no ANTHROPIC_API_KEY needed to run the suite).
+hybrid retrieval and evaluation against real Postgres/pgvector, the agent's
+tool loop, grounding and conversation persistence against a scripted chat
+model (no ANTHROPIC_API_KEY needed to run the suite), and architecture
+detection against real committed code (docker-compose parsing, decorator/
+name-pattern classification, usage-signal edges).
+
+The architecture detectors were also verified against a real public FastAPI
+repository (`nsidnev/fastapi-realworld-example-app`) end to end, which is how
+the test-code misclassification above was actually caught before it shipped.
