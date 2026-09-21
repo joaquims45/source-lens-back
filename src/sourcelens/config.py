@@ -7,8 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-    database_url: str = "postgresql+psycopg://sourcelens:sourcelens@localhost:55432/sourcelens"
-    redis_url: str = "redis://localhost:56379/0"
+    database_url: str = "postgresql+psycopg://sourcelens:sourcelens@127.0.0.1:55432/sourcelens"
+    redis_url: str = "redis://127.0.0.1:56379/0"
     workspace_dir: Path = Path(".sourcelens/tmp")
     clone_timeout: int = Field(default=120, ge=1)
     job_timeout: int = Field(default=600, ge=1)
