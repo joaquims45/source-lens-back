@@ -92,6 +92,21 @@ def progress(
     )
 
 
+def complete(db: Session, job_id: UUID, owner: UUID, summary: dict[str, Any]) -> None:
+    job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if job is None or job.lease_owner != owner or job.status != "running":
+        raise DomainError("lease_lost", "Worker no longer owns this job", 409)
+    analysis = db.get(Analysis, job.analysis_id)
+    assert analysis is not None
+    job.status = analysis.status = "completed"
+    job.lease_expires_at = None
+    analysis.completed_at = now()
+    analysis.versions = summary["versions"]
+    analysis.capabilities = summary["capabilities"]
+    analysis.stats = summary["stats"]
+    event(db, job, "analysis.completed", {})
+
+
 def fail(db: Session, job_id: UUID, owner: UUID, code: str) -> None:
     job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if job is None or job.lease_owner != owner or job.status != "running":
