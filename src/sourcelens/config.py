@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     max_entries: int = Field(default=50_000, ge=1)
     lease_seconds: int = Field(default=90, ge=10)
     max_job_attempts: int = Field(default=3, ge=1)
+    embedding_provider: str = "hashing"
+    embedding_batch_size: int = Field(default=64, ge=1)
+    voyage_api_key: str | None = None
+    voyage_model: str = "voyage-code-3"
 
 
 @lru_cache

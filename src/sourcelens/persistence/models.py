@@ -2,10 +2,15 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import CheckConstraint, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime
+
+# Fixed at the schema level because pgvector columns are dimensioned; changing
+# embedding providers to a different dimensionality needs its own migration.
+EMBEDDING_DIMENSIONS = 256
 
 
 def now() -> datetime:
@@ -173,3 +178,5 @@ class Chunk(Base):
     end_line: Mapped[int]
     token_count: Mapped[int]
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    embedding_model: Mapped[str | None]
