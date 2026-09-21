@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     embedding_batch_size: int = Field(default=64, ge=1)
     voyage_api_key: str | None = None
     voyage_model: str = "voyage-code-3"
+    anthropic_api_key: str | None = None
+    agent_model: str = "claude-sonnet-5"
+    agent_max_iterations: int = Field(default=6, ge=1)
+    agent_search_k: int = Field(default=8, ge=1)
 
 
 @lru_cache

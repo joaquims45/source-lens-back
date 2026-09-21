@@ -180,3 +180,27 @@ class Chunk(Base):
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
     embedding_model: Mapped[str | None]
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    analysis_id: Mapped[UUID] = mapped_column(ForeignKey("analyses.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=now)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (UniqueConstraint("conversation_id", "sequence"),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
+    sequence: Mapped[int]
+    role: Mapped[str]
+    content: Mapped[str]
+    # Sources are never model-generated free text: they are the deduplicated
+    # tool evidence gathered while answering, so a citation always points at
+    # a chunk/file the agent actually retrieved.
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=now)
