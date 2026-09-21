@@ -83,6 +83,23 @@ class ImportSummary(BaseModel):
     start_line: int
 
 
+class ChatRequest(BaseModel):
+    question: str
+    conversation_id: UUID | None = None
+
+
+class CitationResponse(BaseModel):
+    path: str
+    start_line: int
+    end_line: int
+
+
+class ChatResponse(BaseModel):
+    conversation_id: UUID
+    answer: str
+    citations: list[CitationResponse]
+
+
 class SearchResultResponse(BaseModel):
     chunk_id: UUID
     file_id: UUID
