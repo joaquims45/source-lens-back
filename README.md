@@ -2,9 +2,10 @@
 
 Evidence-first repository intelligence backend for **SourceLens**. This README
 covers what exists today: **Milestone 1 — Repository Intelligence**,
-**Milestone 2 — Search**, **Milestone 3 — AI Agent** and
-**Milestone 5 — Architecture Intelligence**. Dependency/call tracing
-(Milestone 6) is not implemented yet.
+**Milestone 2 — Search**, **Milestone 3 — AI Agent**,
+**Milestone 5 — Architecture Intelligence** and
+**Milestone 6 — Dependency Tracing**. Remaining work is Milestone 7
+(production hardening).
 
 ## What Milestone 1 does
 
@@ -76,11 +77,11 @@ uv run python -m sourcelens.evaluation.run \
 
 ## What Milestone 3 does
 
-A single LangGraph agent answers questions about the repository, using six
+A single LangGraph agent answers questions about the repository, using
 bounded read tools over the M1/M2 data: `search_code`, `find_symbol`,
-`read_file`, `find_references`, `get_file_tree` and `get_repository_info`.
-(Component/dependency tools — `get_architecture`, `trace_dependency`, etc. —
-are deferred to Milestones 5/6, where the graph they need actually exists.)
+`read_file`, `find_references`, `trace_dependency` (added in Milestone 6,
+once the call graph it needs existed), `get_file_tree` and
+`get_repository_info`.
 
 ```
 agent (LLM + tools) --tool call?--> tools --> harvest evidence --back to agent
@@ -144,6 +145,30 @@ An import edge cites the actual import statement but only *approximately*
 matches it to a module by name; treat low-confidence edges as leads, not
 certainties, exactly as their `confidence` field signals.
 
+## What Milestone 6 does
+
+`sourcelens.tracing` answers "who calls this" / "what does this call" for a
+selected function or method — a static, name-based call graph, computed on
+demand from persisted symbols like the architecture graph, and equally
+explicit about not being full semantic resolution:
+
+- `self.foo()` / `this.foo()` / `cls.foo()` resolves against sibling methods
+  of the *same class* first (confidence 0.8) — the qualifier narrows the
+  search.
+- A bare `foo()` resolves against a repository-wide name index: exactly one
+  symbol named `foo` -> **resolved** (0.6); more than one (two unrelated
+  classes each with a `save` method, say) -> **ambiguous** (0.3, every
+  candidate listed — never guessed); zero matches (a builtin or third-party
+  call) -> no edge at all, since there's nothing in the repository to cite.
+- A definition's own signature (`def foo(`, `class Foo(`) is excluded from
+  being read as a call to itself — this exact confusion was a real bug
+  caught by the unit tests before it shipped.
+
+`GET /analyses/{id}/symbols/{symbol_id}/trace` returns the selected symbol
+plus its callers/callees, each with the citing call site and its
+resolved/ambiguous status. The agent also gained a `trace_dependency` tool
+now that this data exists (see Milestone 3 above).
+
 ## Architecture
 
 - **API** (`sourcelens.main`): FastAPI app exposing submission and inspection
@@ -198,6 +223,7 @@ All endpoints are under `/api/v1`.
 | `GET /analyses/{id}/chat/stream?q=&conversation_id=` | Same as above, streamed as SSE events: `tool_call`, `evidence`, `answer`, then `done` (with the conversation id). |
 | `GET /analyses/{id}/architecture` | The full architecture graph: nodes and edges, each with its evidence and confidence. |
 | `GET /analyses/{id}/architecture/components/{component_id}` | One component's evidence plus its incoming/outgoing dependency edges. |
+| `GET /analyses/{id}/symbols/{symbol_id}/trace` | Who calls this symbol and what it calls, each with the citing call site and resolved/ambiguous status. |
 
 Errors are returned as `application/problem+json` with a `request_id` that
 matches the `X-Request-ID` response header and the structured logs.
@@ -232,6 +258,7 @@ model (no ANTHROPIC_API_KEY needed to run the suite), and architecture
 detection against real committed code (docker-compose parsing, decorator/
 name-pattern classification, usage-signal edges).
 
-The architecture detectors were also verified against a real public FastAPI
-repository (`nsidnev/fastapi-realworld-example-app`) end to end, which is how
-the test-code misclassification above was actually caught before it shipped.
+The architecture and call-graph detectors were also verified against a real
+public FastAPI repository (`nsidnev/fastapi-realworld-example-app`) end to
+end, which is how the test-code misclassification above was actually caught
+before it shipped.
