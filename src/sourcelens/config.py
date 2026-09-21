@@ -27,6 +27,19 @@ class Settings(BaseSettings):
     agent_model: str = "claude-sonnet-5"
     agent_max_iterations: int = Field(default=6, ge=1)
     agent_search_k: int = Field(default=8, ge=1)
+    # Comma-separated list of allowed browser origins. Local dev defaults to
+    # the Vite dev server; a real deployment must set this explicitly.
+    cors_allow_origins: str = "http://localhost:5173"
+    # When set, every /api/v1 request must carry a matching X-API-Key header.
+    # None (the default) keeps the local single-operator setup unauthenticated,
+    # per the Milestone 0 security model — set this before exposing the
+    # service publicly.
+    api_key: str | None = None
+    architecture_cache_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1)
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
 
 
 @lru_cache
