@@ -1,9 +1,10 @@
 # source-lens-api
 
 Evidence-first repository intelligence backend for **SourceLens**. This README
-covers what exists today: **Milestone 1 — Repository Intelligence** and
-**Milestone 2 — Search**. The LangGraph agent and architecture intelligence
-are later milestones and are not implemented yet.
+covers what exists today: **Milestone 1 — Repository Intelligence**,
+**Milestone 2 — Search** and **Milestone 3 — AI Agent**. Architecture
+intelligence and dependency tracing are later milestones and are not
+implemented yet.
 
 ## What Milestone 1 does
 
@@ -73,6 +74,42 @@ uv run python -m sourcelens.evaluation.run \
 [{"question": "How are orders created?", "expected_files": ["src/orders/order.service.ts"]}]
 ```
 
+## What Milestone 3 does
+
+A single LangGraph agent answers questions about the repository, using six
+bounded read tools over the M1/M2 data: `search_code`, `find_symbol`,
+`read_file`, `find_references`, `get_file_tree` and `get_repository_info`.
+(Component/dependency tools — `get_architecture`, `trace_dependency`, etc. —
+are deferred to Milestones 5/6, where the graph they need actually exists.)
+
+```
+agent (LLM + tools) --tool call?--> tools --> harvest evidence --back to agent
+        |
+        no more tool calls
+        v
+      answer
+```
+
+Grounding is structural, not trust-based: **citations returned to the caller
+are exactly the deduplicated tool evidence the graph harvested — never text
+the model wrote**. A tool's result (`artifact`) is the only source of
+citations, so an answer can't cite a file or line the agent didn't actually
+retrieve. Tool output is also fenced (`<repository_content untrusted="true">`)
+and the system prompt states explicitly that repository content is data,
+never instructions — a comment reading "ignore previous instructions" is
+just text to quote, not something the model obeys. A hard iteration cap
+forces a tools-off final turn instead of ever looping forever.
+
+Conversations and their citations persist to Postgres
+(`conversations`/`chat_messages`), so a `conversation_id` continues a thread.
+
+**Model, pragmatically**: the default chat model is Anthropic's API via
+`langchain-anthropic` (`ANTHROPIC_API_KEY` required); without a key, `/chat`
+and `/chat/stream` fail clearly (`agent_unconfigured`) while every other
+endpoint keeps working. The whole graph — tool loop, evidence dedup,
+iteration cap — is independently tested with a scripted fake chat model, the
+same offline-first pattern used for embeddings in Milestone 2.
+
 ## Architecture
 
 - **API** (`sourcelens.main`): FastAPI app exposing submission and inspection
@@ -123,6 +160,8 @@ All endpoints are under `/api/v1`.
 | `GET /analyses/{id}/files/{file_id}` | File content plus its symbols and imports. |
 | `GET /analyses/{id}/symbols?q=` | Symbols for the analysis, optionally filtered by qualified name. |
 | `GET /analyses/{id}/search?q=&k=&strategy=` | Hybrid code search. `strategy` is `semantic`, `lexical`, `hybrid` or `hybrid_rerank` (default). Returns chunks with file/line citations and per-component scores. |
+| `POST /analyses/{id}/chat` | Ask a grounded question. Body `{"question": "...", "conversation_id": null}`. Returns the answer plus citations; omit `conversation_id` to start a new thread, pass it back to continue one. |
+| `GET /analyses/{id}/chat/stream?q=&conversation_id=` | Same as above, streamed as SSE events: `tool_call`, `evidence`, `answer`, then `done` (with the conversation id). |
 
 Errors are returned as `application/problem+json` with a `request_id` that
 matches the `X-Request-ID` response header and the structured logs.
@@ -133,6 +172,11 @@ Repository content is untrusted input: only public `https://github.com/...`
 URLs are accepted, clones are shallow and time/size bounded, secrets and
 `.env`-like files are excluded or redacted, symlinks are never followed, and
 paths are validated against traversal. Repository code is never executed.
+
+The agent extends this to the LLM boundary: everything a tool returns is
+repository *data*, never instructions, both structurally (the system prompt)
+and textually (an untrusted-content fence around tool output) — see
+Milestone 3 above.
 
 ## Testing
 
@@ -145,5 +189,7 @@ RUN_INTEGRATION=1 uv run pytest            # + integration tests (needs postgres
 
 Integration tests cover idempotent submission, lease-based job redelivery,
 snapshot isolation between analyses, the ingestion task end to end (against a
-fake clone step, so they don't depend on network access), and lexical/
-semantic/hybrid retrieval and evaluation against real Postgres/pgvector.
+fake clone step, so they don't depend on network access), lexical/semantic/
+hybrid retrieval and evaluation against real Postgres/pgvector, and the
+agent's tool loop, grounding and conversation persistence against a scripted
+chat model (no ANTHROPIC_API_KEY needed to run the suite).
