@@ -10,6 +10,7 @@ from sourcelens.api.chat import router as chat_router
 from sourcelens.api.errors import install_errors
 from sourcelens.api.repositories import router as repositories_router
 from sourcelens.api.search import router as search_router
+from sourcelens.api.tracing import router as tracing_router
 
 structlog.configure(
     processors=[
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(chat_router)
     app.include_router(architecture_router)
+    app.include_router(tracing_router)
 
     @app.middleware("http")
     async def request_context(

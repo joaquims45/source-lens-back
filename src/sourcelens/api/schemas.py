@@ -83,6 +83,30 @@ class ImportSummary(BaseModel):
     start_line: int
 
 
+class TraceSymbolResponse(BaseModel):
+    id: UUID
+    path: str
+    qualified_name: str
+    kind: str
+    start_line: int
+    end_line: int
+    signature: str
+
+
+class TraceEdgeResponse(BaseModel):
+    symbol: TraceSymbolResponse
+    line: int
+    resolution: str
+    confidence: float
+    candidates: list[UUID]
+
+
+class SymbolTraceResponse(BaseModel):
+    symbol: TraceSymbolResponse
+    callers: list[TraceEdgeResponse]
+    callees: list[TraceEdgeResponse]
+
+
 class ChatRequest(BaseModel):
     question: str
     conversation_id: UUID | None = None
