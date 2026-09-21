@@ -134,6 +134,20 @@ def test_analysis_files_and_symbols_are_inspectable(client, analyzed_repository)
 
 
 @pytest.mark.integration
+def test_events_stream_replays_history_and_closes_at_terminal_status(client, analyzed_repository):
+    _, analysis_id, _ = analyzed_repository
+
+    with client.stream("GET", f"/api/v1/analyses/{analysis_id}/events") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(response.iter_text())
+
+    events = [line for line in body.splitlines() if line.startswith("event: ")]
+    assert "event: analysis.started" in events
+    assert "event: analysis.completed" in events
+
+
+@pytest.mark.integration
 def test_missing_analysis_returns_problem_json(client):
     response = client.get(f"/api/v1/analyses/{uuid4()}")
     assert response.status_code == 404
