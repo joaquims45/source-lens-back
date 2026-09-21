@@ -3,9 +3,9 @@
 Evidence-first repository intelligence backend for **SourceLens**. This README
 covers what exists today: **Milestone 1 — Repository Intelligence**,
 **Milestone 2 — Search**, **Milestone 3 — AI Agent**,
-**Milestone 5 — Architecture Intelligence** and
-**Milestone 6 — Dependency Tracing**. Remaining work is Milestone 7
-(production hardening).
+**Milestone 5 — Architecture Intelligence**,
+**Milestone 6 — Dependency Tracing** and
+**Milestone 7 — Production Hardening**. (Milestone 4 is `source-lens-web`.)
 
 ## What Milestone 1 does
 
@@ -169,6 +169,29 @@ plus its callers/callees, each with the citing call site and its
 resolved/ambiguous status. The agent also gained a `trace_dependency` tool
 now that this data exists (see Milestone 3 above).
 
+## What Milestone 7 does
+
+- **Security**: CORS is an explicit origin allow-list (no wildcard),
+  defaulting to the Vite dev server. `API_KEY`, unset by default for the
+  local single-operator setup, gates every `/api/*` route behind an
+  `X-API-Key` header when set — closing a gap the Milestone 0 design
+  explicitly flagged ("authentication ... required before exposing the
+  service publicly").
+- **Caching**: the architecture graph and call graph are pure, deterministic
+  computations over an analysis's persisted facts — expensive to recompute
+  (a full regex scan of every symbol's source) for no reason once an
+  analysis is `completed` and therefore immutable. Both are cached in Redis
+  with a TTL as a memory safety valve, not for invalidation (there's nothing
+  to invalidate); a still-running analysis is always computed fresh, since
+  caching a graph built from partial data would be wrong.
+- **Observability**: `sourcelens.observability` logs retrieval (strategy,
+  candidate count, top scores per component, latency) and agent turns
+  (model, tools called, iterations, input/output tokens, latency, an
+  estimated cost when the model is a recognized one) as structured fields —
+  the ones PLAN.MD's observability section calls for. Every field is also a
+  natural OpenTelemetry span attribute, so real tracing later means wrapping
+  these call sites in spans, not redesigning what gets recorded.
+
 ## Architecture
 
 - **API** (`sourcelens.main`): FastAPI app exposing submission and inspection
@@ -240,6 +263,11 @@ repository *data*, never instructions, both structurally (the system prompt)
 and textually (an untrusted-content fence around tool output) — see
 Milestone 3 above.
 
+At the network boundary (Milestone 7): CORS is an explicit origin
+allow-list, and `API_KEY` gates every `/api/*` route via `X-API-Key` when
+set (see above) — unset by default, since this is still meant as a local,
+single-operator deployment rather than a publicly exposed one.
+
 ## Testing
 
 ```bash
@@ -262,3 +290,11 @@ The architecture and call-graph detectors were also verified against a real
 public FastAPI repository (`nsidnev/fastapi-realworld-example-app`) end to
 end, which is how the test-code misclassification above was actually caught
 before it shipped.
+
+CORS/API-key auth, caching (asserting the detection function only runs once
+across repeated requests, not just that a cache function was called) and
+structured logging (via structlog's `capture_logs`, asserting real emitted
+fields rather than that a log function was called) all have their own
+coverage too. 127 tests total. API key auth and CORS were also independently
+verified against a live container (`API_KEY` set, wrong/missing/correct
+`X-API-Key`, and a real CORS preflight request).
