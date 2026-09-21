@@ -5,6 +5,7 @@ from uuid import uuid4
 import structlog
 from fastapi import FastAPI, Request, Response
 
+from sourcelens.api.architecture import router as architecture_router
 from sourcelens.api.chat import router as chat_router
 from sourcelens.api.errors import install_errors
 from sourcelens.api.repositories import router as repositories_router
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(repositories_router)
     app.include_router(search_router)
     app.include_router(chat_router)
+    app.include_router(architecture_router)
 
     @app.middleware("http")
     async def request_context(

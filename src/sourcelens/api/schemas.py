@@ -114,6 +114,45 @@ class SearchResultResponse(BaseModel):
     rerank_score: float | None
 
 
+class EvidenceResponse(BaseModel):
+    file: str
+    line: int
+    reason: str
+    origin: str
+
+
+class ArchitectureNodeResponse(BaseModel):
+    id: str
+    label: str
+    type: str
+    confidence: float
+    source_files: list[str]
+    metadata: dict[str, Any]
+    evidence: list[EvidenceResponse]
+
+
+class ArchitectureEdgeResponse(BaseModel):
+    source: str
+    target: str
+    type: str
+    confidence: float
+    evidence: list[EvidenceResponse]
+
+
+class ArchitectureGraphResponse(BaseModel):
+    name: str
+    schema_version: str
+    nodes: list[ArchitectureNodeResponse]
+    edges: list[ArchitectureEdgeResponse]
+    warnings: list[str]
+
+
+class ArchitectureComponentResponse(BaseModel):
+    node: ArchitectureNodeResponse
+    incoming: list[ArchitectureEdgeResponse]
+    outgoing: list[ArchitectureEdgeResponse]
+
+
 class FileDetail(BaseModel):
     id: UUID
     path: str
