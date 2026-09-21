@@ -134,6 +134,34 @@ def test_analysis_files_and_symbols_are_inspectable(client, analyzed_repository)
 
 
 @pytest.mark.integration
+def test_search_endpoint_returns_scored_hybrid_results(client, analyzed_repository):
+    _, analysis_id, _ = analyzed_repository
+
+    response = client.get(f"/api/v1/analyses/{analysis_id}/search", params={"q": "Service run"})
+    assert response.status_code == 200
+    results = response.json()
+    assert results
+    top = results[0]
+    assert top["path"] == "service.py"
+    assert top["semantic_score"] is not None
+    assert top["fused_score"] is not None
+    assert top["rerank_score"] is not None
+
+
+@pytest.mark.integration
+def test_search_endpoint_lexical_strategy_skips_embeddings(client, analyzed_repository):
+    _, analysis_id, _ = analyzed_repository
+
+    response = client.get(
+        f"/api/v1/analyses/{analysis_id}/search",
+        params={"q": "Service", "strategy": "lexical"},
+    )
+    assert response.status_code == 200
+    results = response.json()
+    assert results and all(r["semantic_score"] is None for r in results)
+
+
+@pytest.mark.integration
 def test_events_stream_replays_history_and_closes_at_terminal_status(client, analyzed_repository):
     _, analysis_id, _ = analyzed_repository
 

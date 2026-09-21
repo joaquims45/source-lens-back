@@ -83,6 +83,20 @@ class ImportSummary(BaseModel):
     start_line: int
 
 
+class SearchResultResponse(BaseModel):
+    chunk_id: UUID
+    file_id: UUID
+    path: str
+    start_line: int
+    end_line: int
+    context_header: str
+    content: str
+    semantic_score: float | None
+    lexical_score: float | None
+    fused_score: float | None
+    rerank_score: float | None
+
+
 class FileDetail(BaseModel):
     id: UUID
     path: str
