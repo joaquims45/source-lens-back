@@ -9,6 +9,7 @@ from sourcelens.persistence.models import Analysis, SourceFile, Symbol
 from sourcelens.retrieval.embeddings import get_embedding_provider
 from sourcelens.retrieval.rerank import OverlapReranker
 from sourcelens.retrieval.service import search
+from sourcelens.tracing.service import get_symbol_trace
 
 Evidence = dict[str, object]
 ToolResult = tuple[str, list[Evidence]]
@@ -48,8 +49,7 @@ def build_tools(db: Session, analysis_id: UUID, settings: Settings) -> list[Base
         if not results:
             return "No matching code was found.", []
         evidence = [
-            {"path": r.path, "start_line": r.start_line, "end_line": r.end_line}
-            for r in results
+            {"path": r.path, "start_line": r.start_line, "end_line": r.end_line} for r in results
         ]
         blocks = "\n\n".join(
             f"{r.path}:{r.start_line}-{r.end_line}\n{r.context_header}\n{r.content}"
@@ -105,8 +105,9 @@ def build_tools(db: Session, analysis_id: UUID, settings: Settings) -> list[Base
     @tool(response_format="content_and_artifact")
     def find_references(name: str) -> ToolResult:
         """Find where a symbol name is textually referenced across the
-        repository (lexical match, not a resolved call graph — dependency
-        tracing lands in a later milestone). Useful for "what uses X".
+        repository (lexical match — for actual call resolution, prefer
+        trace_dependency). Useful for "what uses X" beyond just function
+        calls (e.g. imports, string references, config keys).
         """
         rows = db.execute(
             select(SourceFile.path, SourceFile.content)
@@ -126,6 +127,61 @@ def build_tools(db: Session, analysis_id: UUID, settings: Settings) -> list[Base
                     blocks.append(f"{path}:{line_number}: {line.strip()}")
                     break
         return fence("\n".join(blocks)), evidence
+
+    @tool(response_format="content_and_artifact")
+    def trace_dependency(name: str) -> ToolResult:
+        """Trace who calls a function/method and what it calls, by (partial,
+        case-insensitive) qualified name. A static, name-based call graph —
+        not fully resolved call semantics — so an edge may be marked
+        "ambiguous" (several same-named candidates) rather than asserted
+        as certain; report that nuance rather than picking one arbitrarily.
+        """
+        match = db.scalar(
+            select(Symbol)
+            .where(
+                Symbol.analysis_id == analysis_id,
+                Symbol.kind.in_(("function", "method")),
+                Symbol.qualified_name.ilike(f"%{name}%"),
+            )
+            .order_by(Symbol.qualified_name)
+            .limit(1)
+        )
+        if match is None:
+            return f"No function or method matching {name!r} was found.", []
+        trace = get_symbol_trace(db, analysis_id, match.id)
+        evidence = [
+            {
+                "path": trace.path,
+                "start_line": trace.symbol.start_line,
+                "end_line": trace.symbol.end_line,
+            }
+        ]
+        lines = [f"{trace.symbol.qualified_name} ({trace.path}:{trace.symbol.start_line})"]
+        lines.append("Called by:" if trace.callers else "Called by: (none found)")
+        for edge in trace.callers:
+            lines.append(
+                f"  - {edge.symbol.qualified_name} at {edge.path}:{edge.line} [{edge.resolution}]"
+            )
+            evidence.append(
+                {
+                    "path": edge.path,
+                    "start_line": edge.symbol.start_line,
+                    "end_line": edge.symbol.end_line,
+                }
+            )
+        lines.append("Calls:" if trace.callees else "Calls: (nothing resolved in this repository)")
+        for edge in trace.callees:
+            lines.append(
+                f"  - {edge.symbol.qualified_name} at {edge.path}:{edge.line} [{edge.resolution}]"
+            )
+            evidence.append(
+                {
+                    "path": edge.path,
+                    "start_line": edge.symbol.start_line,
+                    "end_line": edge.symbol.end_line,
+                }
+            )
+        return fence("\n".join(lines)), evidence
 
     @tool(response_format="content_and_artifact")
     def get_file_tree() -> ToolResult:
@@ -161,6 +217,7 @@ def build_tools(db: Session, analysis_id: UUID, settings: Settings) -> list[Base
         find_symbol,
         read_file,
         find_references,
+        trace_dependency,
         get_file_tree,
         get_repository_info,
     ]

@@ -179,6 +179,18 @@ def test_read_file_tool_wraps_untrusted_repository_content(analyzed_repository):
 
 
 @pytest.mark.integration
+def test_trace_dependency_tool_reports_the_symbols_call_graph(analyzed_repository):
+    analysis_id = analyzed_repository
+    with session() as db:
+        tools = {t.name: t for t in build_tools(db, analysis_id, get_settings())}
+        result = invoke_tool(tools["trace_dependency"], name="create_order")
+
+    assert result.artifact and result.artifact[0]["path"] == "orders.py"
+    assert "OrderService.create_order" in result.content
+    assert "Called by: (none found)" in result.content
+
+
+@pytest.mark.integration
 def test_get_file_tree_lists_every_discovered_file(analyzed_repository):
     analysis_id = analyzed_repository
     with session() as db:
