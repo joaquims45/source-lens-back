@@ -11,6 +11,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from sqlalchemy import delete, select
+from structlog.testing import capture_logs
 
 from sourcelens.agent import service
 from sourcelens.agent.tools import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, build_tools
@@ -217,6 +218,32 @@ def test_ask_persists_conversation_and_grounded_citations(analyzed_repository):
         messages = db.scalars(select_messages(answer.conversation_id)).all()
     assert [m.role for m in messages] == ["user", "assistant"]
     assert messages[1].citations[0]["path"] == "orders.py"
+
+
+@pytest.mark.integration
+def test_ask_logs_structured_agent_observability(analyzed_repository):
+    analysis_id = analyzed_repository
+    final = AIMessage(
+        content="Orders are created by OrderService.create_order.",
+        usage_metadata={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150},
+    )
+    model = ScriptedChatModel(script=[call_message("search_code", {"query": "orders"}), final])
+
+    with session() as db, db.begin(), capture_logs() as logs:
+        answer = service.ask(db, analysis_id, "How are orders created?", model=model)
+
+    events = [entry for entry in logs if entry.get("event") == "agent_turn"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["repository_id"] == str(analysis_id)
+    assert event["conversation_id"] == str(answer.conversation_id)
+    assert event["tools_called"] == ["search_code"]
+    assert event["input_tokens"] == 120
+    assert event["output_tokens"] == 30
+    assert event["total_latency_ms"] >= 0
+    # ScriptedChatModel isn't a real Anthropic model, so cost estimation
+    # correctly declines to guess rather than fabricating a number.
+    assert event["estimated_cost_usd"] is None
 
 
 @pytest.mark.integration

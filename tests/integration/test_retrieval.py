@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete
+from structlog.testing import capture_logs
 
 from sourcelens.persistence.database import session
 from sourcelens.persistence.models import Analysis, Chunk, Repository, SourceFile
@@ -142,3 +143,26 @@ def test_service_search_semantic_only_omits_lexical_and_fused_scores(indexed_chu
         )
     assert all(r.lexical_score is None and r.fused_score is None for r in results)
     assert all(r.semantic_score is not None for r in results)
+
+
+@pytest.mark.integration
+def test_service_search_logs_structured_retrieval_observability(indexed_chunks):
+    _, analysis_id, _, _ = indexed_chunks
+    with session() as db, capture_logs() as logs:
+        search(
+            db,
+            analysis_id,
+            "how are orders created",
+            embedding_provider=PROVIDER,
+            reranker=OverlapReranker(),
+            strategy="hybrid_rerank",
+        )
+
+    events = [entry for entry in logs if entry.get("event") == "retrieval"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["repository_id"] == str(analysis_id)
+    assert event["strategy"] == "hybrid_rerank"
+    assert event["candidates"] >= 1
+    assert event["top_scores"]["semantic"] is not None
+    assert event["retrieval_latency_ms"] >= 0

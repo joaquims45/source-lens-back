@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from sourcelens.observability import log_retrieval
 from sourcelens.persistence.models import Chunk, SourceFile
 from sourcelens.retrieval.embeddings import EmbeddingProvider
 from sourcelens.retrieval.hybrid import reciprocal_rank_fusion
@@ -44,6 +46,7 @@ def search(
     of chunks with file/line citations, which is what M3's agent will ground
     answers in, and what the evaluation module measures Recall@K/MRR against.
     """
+    started = perf_counter()
     semantic_results: list[ScoredChunk] = []
     lexical_results: list[ScoredChunk] = []
     if strategy in ("semantic", "hybrid", "hybrid_rerank"):
@@ -61,6 +64,14 @@ def search(
 
     candidate_ids = [item.chunk_id for item in ranked]
     if not candidate_ids:
+        log_retrieval(
+            analysis_id=str(analysis_id),
+            strategy=strategy,
+            query=query,
+            candidate_count=0,
+            top_scores={},
+            latency_ms=(perf_counter() - started) * 1000,
+        )
         return []
 
     rows = db.execute(
@@ -111,4 +122,18 @@ def search(
                 rerank_score=rerank_scores.get(chunk_id),
             )
         )
+
+    log_retrieval(
+        analysis_id=str(analysis_id),
+        strategy=strategy,
+        query=query,
+        candidate_count=len(candidate_ids),
+        top_scores={
+            "semantic": results[0].semantic_score if results else None,
+            "lexical": results[0].lexical_score if results else None,
+            "fused": results[0].fused_score if results else None,
+            "rerank": results[0].rerank_score if results else None,
+        },
+        latency_ms=(perf_counter() - started) * 1000,
+    )
     return results
