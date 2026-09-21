@@ -12,6 +12,8 @@ from sourcelens.architecture.detect import (
     detect_modules,
 )
 from sourcelens.architecture.graph import ArchitectureGraph, Evidence, GraphBuilder
+from sourcelens.cache import cache_get, cache_set
+from sourcelens.config import Settings, get_settings
 from sourcelens.persistence.models import Analysis, Import, Repository, SourceFile, Symbol
 
 
@@ -63,3 +65,28 @@ def build_architecture_graph(db: Session, analysis_id: UUID) -> ArchitectureGrap
     detect_component_usage_edges(builder, symbol_rows, content_by_file, component_ids)
 
     return builder.build()
+
+
+def get_cached_architecture_graph(
+    db: Session, analysis_id: UUID, settings: Settings | None = None
+) -> ArchitectureGraph:
+    """Same result as `build_architecture_graph`, cached in Redis. Only a
+    *completed* analysis is cached — its files/symbols/imports are immutable
+    from that point on, so the cache never needs invalidation, just a TTL as
+    a memory safety valve. A still-running analysis is never cached, since
+    caching a graph built from partial data would be wrong.
+    """
+    settings = settings or get_settings()
+    analysis = db.get(Analysis, analysis_id)
+    if analysis is None:
+        raise DomainError("analysis_not_found", "Analysis not found", 404)
+    if analysis.status != "completed":
+        return build_architecture_graph(db, analysis_id)
+
+    key = f"architecture:{analysis_id}"
+    cached: ArchitectureGraph | None = cache_get(settings, key)
+    if cached is not None:
+        return cached
+    graph = build_architecture_graph(db, analysis_id)
+    cache_set(settings, key, graph, settings.architecture_cache_ttl_seconds)
+    return graph

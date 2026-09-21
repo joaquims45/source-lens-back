@@ -19,7 +19,7 @@ from sourcelens.architecture.graph import (
     component,
     dependencies,
 )
-from sourcelens.architecture.service import build_architecture_graph
+from sourcelens.architecture.service import get_cached_architecture_graph
 
 router = APIRouter(prefix="/api/v1")
 
@@ -65,14 +65,14 @@ def _graph_response(graph: ArchitectureGraph) -> ArchitectureGraphResponse:
 
 @router.get("/analyses/{analysis_id}/architecture")
 def get_architecture(analysis_id: UUID, db: Session = Depends(get_db)) -> ArchitectureGraphResponse:
-    return _graph_response(build_architecture_graph(db, analysis_id))
+    return _graph_response(get_cached_architecture_graph(db, analysis_id))
 
 
 @router.get("/analyses/{analysis_id}/architecture/components/{component_id}")
 def get_component(
     analysis_id: UUID, component_id: str, db: Session = Depends(get_db)
 ) -> ArchitectureComponentResponse:
-    graph = build_architecture_graph(db, analysis_id)
+    graph = get_cached_architecture_graph(db, analysis_id)
     node = component(graph, component_id)
     return ArchitectureComponentResponse(
         node=_node(node),

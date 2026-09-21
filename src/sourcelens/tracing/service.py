@@ -5,8 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from sourcelens.api.errors import DomainError
+from sourcelens.cache import cache_get, cache_set
+from sourcelens.config import Settings, get_settings
 from sourcelens.persistence.models import Analysis, SourceFile, Symbol
-from sourcelens.tracing.calls import Resolution, detect_calls
+from sourcelens.tracing.calls import CallEdge, Resolution, detect_calls
 
 
 @dataclass(frozen=True)
@@ -27,13 +29,36 @@ class SymbolTrace:
     callees: list[TraceEdge]
 
 
-def get_symbol_trace(db: Session, analysis_id: UUID, symbol_id: UUID) -> SymbolTrace:
-    """Computed on demand, like the architecture graph: the whole analysis's
-    call graph is derived fresh from persisted symbols/content rather than
-    stored, so detector changes apply retroactively without re-ingesting.
+def _cached_call_edges(
+    analysis: Analysis, symbols: list[Symbol], content_by_file: dict[UUID, str], settings: Settings
+) -> list[CallEdge]:
+    """The regex scan over every symbol's source is the expensive part of
+    tracing, not the DB read that feeds it — so only that scan is cached,
+    keyed by analysis, and only once the analysis is complete (immutable).
     """
-    if db.get(Analysis, analysis_id) is None:
+    if analysis.status != "completed":
+        return detect_calls(symbols, content_by_file)
+
+    key = f"calls:{analysis.id}"
+    cached: list[CallEdge] | None = cache_get(settings, key)
+    if cached is not None:
+        return cached
+    edges = detect_calls(symbols, content_by_file)
+    cache_set(settings, key, edges, settings.architecture_cache_ttl_seconds)
+    return edges
+
+
+def get_symbol_trace(
+    db: Session, analysis_id: UUID, symbol_id: UUID, settings: Settings | None = None
+) -> SymbolTrace:
+    """Computed on demand, like the architecture graph: the whole analysis's
+    call graph is derived from persisted symbols/content rather than stored,
+    so detector changes apply retroactively without re-ingesting.
+    """
+    analysis = db.get(Analysis, analysis_id)
+    if analysis is None:
         raise DomainError("analysis_not_found", "Analysis not found", 404)
+    settings = settings or get_settings()
 
     symbol_rows: list[tuple[Symbol, str]] = [
         (symbol, path)
@@ -52,7 +77,9 @@ def get_symbol_trace(db: Session, analysis_id: UUID, symbol_id: UUID) -> SymbolT
     files = list(db.scalars(select(SourceFile).where(SourceFile.analysis_id == analysis_id)))
     content_by_file = {file.id: file.content for file in files}
 
-    edges = detect_calls([symbol for symbol, _ in symbol_rows], content_by_file)
+    edges = _cached_call_edges(
+        analysis, [symbol for symbol, _ in symbol_rows], content_by_file, settings
+    )
 
     callees = [
         TraceEdge(
