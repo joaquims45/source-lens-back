@@ -15,3 +15,8 @@ app.conf.update(
     broker_connection_retry_on_startup=True,
     broker_transport_options={"visibility_timeout": get_settings().job_timeout + 60},
 )
+
+# Imported for its @app.task registration side effect, after `app` is defined
+# above, so a worker started with `-A sourcelens.jobs.celery_app` finds the
+# "sourcelens.ingest" task.
+from sourcelens.jobs import tasks  # noqa: E402,F401

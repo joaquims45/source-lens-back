@@ -23,6 +23,45 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+  api:
+    build: .
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn sourcelens.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://sourcelens:sourcelens@postgres:5432/sourcelens
+      REDIS_URL: redis://redis:6379/0
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  dispatcher:
+    build: .
+    command: ["python", "-m", "sourcelens.jobs.dispatcher"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://sourcelens:sourcelens@postgres:5432/sourcelens
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  worker:
+    build: .
+    command: ["celery", "-A", "sourcelens.jobs.celery_app", "worker", "--loglevel=INFO", "-Q", "ingestion"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://sourcelens:sourcelens@postgres:5432/sourcelens
+      REDIS_URL: redis://redis:6379/0
+      # The Dockerfile creates and chowns /work for the unprivileged user;
+      # the default WORKSPACE_DIR is relative to /app, which is root-owned.
+      WORKSPACE_DIR: /work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 volumes:
   pgdata:
   redisdata:
