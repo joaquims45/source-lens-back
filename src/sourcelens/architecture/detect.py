@@ -16,6 +16,18 @@ from sourcelens.persistence.models import Import, SourceFile, Symbol
 
 SOURCE_ROOTS = ("src", "app", "lib")
 EXCLUDED_TOP_LEVEL = {"tests", "test", "docs", "scripts", "migrations", ".github", "node_modules"}
+TEST_FILENAME = re.compile(r"^test_.*\.py$|.*_test\.py$|.*\.test\.[jt]sx?$|.*\.spec\.[jt]sx?$")
+
+
+def is_test_path(path: str) -> bool:
+    """Excludes test code from component detection: a test function whose
+    name happens to contain "jwt" or "auth" (e.g. test_creating_jwt_token)
+    would otherwise be misclassified as an authentication component.
+    """
+    parts = path.split("/")
+    if any(part in ("tests", "test") for part in parts[:-1]):
+        return True
+    return bool(TEST_FILENAME.match(parts[-1]))
 
 
 def slug(text: str) -> str:
@@ -169,6 +181,8 @@ def detect_components(
     """
     component_ids: dict[UUID, str] = {}
     for symbol, path in symbol_rows:
+        if is_test_path(path):
+            continue
         if symbol.kind == "function" and symbol.parent_id is not None:
             continue
         if symbol.kind not in ("class", "function"):

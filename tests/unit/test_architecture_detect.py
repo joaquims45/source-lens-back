@@ -155,6 +155,17 @@ def test_detect_components_classifies_by_name_suffix():
     assert node.confidence == 0.6
 
 
+def test_detect_components_excludes_test_files():
+    file = make_file("tests/test_auth.py")
+    content = "def test_creating_jwt_token():\n    pass\n"
+    symbol = make_symbol(file.id, "test_creating_jwt_token", "function", content)
+
+    builder = GraphBuilder("test")
+    component_ids = detect_components(builder, [(symbol, file.path)], {file.id: content})
+
+    assert component_ids == {}
+
+
 def test_detect_components_skips_unclassified_symbols():
     file = make_file("src/orders/util.py")
     content = "class Helper:\n    pass\n"
