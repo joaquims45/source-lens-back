@@ -6,6 +6,7 @@ import structlog
 from fastapi import FastAPI, Request, Response
 
 from sourcelens.api.errors import install_errors
+from sourcelens.api.repositories import router as repositories_router
 
 structlog.configure(
     processors=[
@@ -20,6 +21,7 @@ logger = structlog.get_logger()
 def create_app() -> FastAPI:
     app = FastAPI(title="SourceLens API", version="0.1.0")
     install_errors(app)
+    app.include_router(repositories_router)
 
     @app.middleware("http")
     async def request_context(
