@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 import structlog
+from sqlalchemy import select
 
 from sourcelens.api.errors import DomainError
 from sourcelens.config import get_settings
@@ -17,7 +18,8 @@ from sourcelens.intelligence.pipeline import build_file_artifacts
 from sourcelens.jobs import state
 from sourcelens.jobs.celery_app import app
 from sourcelens.persistence.database import session
-from sourcelens.persistence.models import Analysis, Exclusion, Job, Repository
+from sourcelens.persistence.models import Analysis, Chunk, Exclusion, Job, Repository
+from sourcelens.retrieval.embeddings import get_embedding_provider
 
 logger = structlog.get_logger()
 
@@ -146,19 +148,54 @@ def run(
             details={"symbols": symbol_count, "chunks": chunk_count},
         )
 
+    provider = get_embedding_provider(settings)
+    report(job_id, owner, "embedding", "started", total=chunk_count)
+    with session() as db:
+        chunk_ids = list(
+            db.scalars(select(Chunk.id).where(Chunk.analysis_id == analysis_id).order_by(Chunk.id))
+        )
+    embedded = 0
+    for start in range(0, len(chunk_ids), settings.embedding_batch_size):
+        batch_ids = chunk_ids[start : start + settings.embedding_batch_size]
+        with session() as db, db.begin():
+            rows = list(db.scalars(select(Chunk).where(Chunk.id.in_(batch_ids))))
+            vectors = provider.embed([row.content for row in rows])
+            for row, vector in zip(rows, vectors, strict=True):
+                row.embedding = vector
+                row.embedding_model = provider.name
+        embedded += len(batch_ids)
+        heartbeat()
+    report(
+        job_id,
+        owner,
+        "embedding",
+        "completed",
+        processed=embedded,
+        total=len(chunk_ids),
+        details={"provider": provider.name},
+    )
+
     with session() as db, db.begin():
         state.complete(
             db,
             job_id,
             owner,
             {
-                "versions": {"parser": parser_versions(), "chunker": CHUNKER_VERSION},
-                "capabilities": {"languages": sorted(SUPPORTED)},
+                "versions": {
+                    "parser": parser_versions(),
+                    "chunker": CHUNKER_VERSION,
+                    "embedding": provider.name,
+                },
+                "capabilities": {
+                    "languages": sorted(SUPPORTED),
+                    "search": {"lexical": True, "semantic": True, "hybrid": True},
+                },
                 "stats": {
                     "files": len(discovery.files),
                     "excluded": len(discovery.exclusions),
                     "symbols": symbol_count,
                     "chunks": chunk_count,
+                    "embedded_chunks": embedded,
                     "languages": language_stats,
                 },
             },

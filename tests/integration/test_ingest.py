@@ -91,7 +91,18 @@ def test_ingest_parses_and_completes_analysis(committed_job, monkeypatch):
         assert analysis.commit_sha == "a" * 40
         assert analysis.stats["symbols"] == 2
         assert analysis.stats["chunks"] == 2
+        assert analysis.stats["embedded_chunks"] == 2
         assert analysis.capabilities["languages"] == ["javascript", "python", "tsx", "typescript"]
+        assert analysis.capabilities["search"] == {
+            "lexical": True,
+            "semantic": True,
+            "hybrid": True,
+        }
+        assert analysis.versions["embedding"] == "hashing-v1-256"
+
+        chunks = db.scalars(select(Chunk).where(Chunk.analysis_id == analysis_id)).all()
+        assert all(chunk.embedding is not None for chunk in chunks)
+        assert all(chunk.embedding_model == "hashing-v1-256" for chunk in chunks)
 
         files = db.scalars(select(SourceFile).where(SourceFile.analysis_id == analysis_id)).all()
         assert [file.path for file in files] == ["service.py"]
