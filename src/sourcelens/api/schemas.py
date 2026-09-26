@@ -39,6 +39,14 @@ class StageSummary(BaseModel):
     details: dict[str, Any]
 
 
+class AnalysisListItem(BaseModel):
+    id: UUID
+    repository: RepositorySummary
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
 class AnalysisResponse(BaseModel):
     id: UUID
     repository: RepositorySummary
@@ -122,6 +130,26 @@ class ChatResponse(BaseModel):
     conversation_id: UUID
     answer: str
     citations: list[CitationResponse]
+
+
+class ConversationSummary(BaseModel):
+    id: UUID
+    created_at: datetime
+    preview: str | None
+
+
+class ChatMessageResponse(BaseModel):
+    id: UUID
+    role: str
+    content: str
+    citations: list[CitationResponse]
+    created_at: datetime
+
+
+class ConversationDetail(BaseModel):
+    id: UUID
+    created_at: datetime
+    messages: list[ChatMessageResponse]
 
 
 class SearchResultResponse(BaseModel):

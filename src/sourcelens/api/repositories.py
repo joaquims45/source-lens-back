@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sourcelens.api.deps import get_db
 from sourcelens.api.errors import DomainError
 from sourcelens.api.schemas import (
+    AnalysisListItem,
     AnalysisResponse,
     FileDetail,
     FileSummary,
@@ -78,6 +79,31 @@ def submit_repository(
         job_id=job.id,
         status=job.status,
     )
+
+
+@router.get("/analyses")
+def list_analyses(db: Session = Depends(get_db)) -> list[AnalysisListItem]:
+    statement = (
+        select(Analysis, Repository)
+        .join(Repository, Analysis.repository_id == Repository.id)
+        .order_by(Analysis.created_at.desc())
+        .limit(50)
+    )
+    return [
+        AnalysisListItem(
+            id=analysis.id,
+            repository=RepositorySummary(
+                id=repository.id,
+                owner=repository.owner,
+                name=repository.name,
+                url=repository.canonical_url,
+            ),
+            status=analysis.status,
+            created_at=analysis.created_at,
+            completed_at=analysis.completed_at,
+        )
+        for analysis, repository in db.execute(statement).all()
+    ]
 
 
 @router.get("/analyses/{analysis_id}")

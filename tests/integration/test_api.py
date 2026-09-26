@@ -134,6 +134,22 @@ def test_analysis_files_and_symbols_are_inspectable(client, analyzed_repository)
 
 
 @pytest.mark.integration
+def test_list_analyses_includes_newly_ingested_repository(client, analyzed_repository):
+    repo_id, analysis_id, _ = analyzed_repository
+
+    analyses = client.get("/api/v1/analyses").json()
+
+    match = next(item for item in analyses if item["id"] == str(analysis_id))
+    assert match["status"] == "completed"
+    assert match["repository"] == {
+        "id": str(repo_id),
+        "owner": "test",
+        "name": "a",
+        "url": match["repository"]["url"],
+    }
+
+
+@pytest.mark.integration
 def test_search_endpoint_returns_scored_hybrid_results(client, analyzed_repository):
     _, analysis_id, _ = analyzed_repository
 

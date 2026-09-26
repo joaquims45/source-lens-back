@@ -202,3 +202,45 @@ def test_chat_stream_rejects_unknown_analysis_before_streaming(client):
     )
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/problem+json"
+
+
+@pytest.mark.integration
+def test_list_and_get_conversation_expose_persisted_history(
+    client, analyzed_repository, monkeypatch
+):
+    analysis_id = analyzed_repository
+    mock_model(
+        monkeypatch,
+        [
+            call_message("search_code", {"query": "orders"}),
+            AIMessage(content="Orders are created by OrderService."),
+        ],
+    )
+
+    chat_response = client.post(
+        f"/api/v1/analyses/{analysis_id}/chat", json={"question": "How are orders created?"}
+    )
+    conversation_id = chat_response.json()["conversation_id"]
+
+    conversations = client.get(f"/api/v1/analyses/{analysis_id}/conversations").json()
+    match = next(c for c in conversations if c["id"] == conversation_id)
+    assert match["preview"] == "How are orders created?"
+
+    detail = client.get(
+        f"/api/v1/analyses/{analysis_id}/conversations/{conversation_id}"
+    ).json()
+    assert [m["role"] for m in detail["messages"]] == ["user", "assistant"]
+    assert detail["messages"][1]["content"] == "Orders are created by OrderService."
+    assert detail["messages"][1]["citations"][0]["path"] == "orders.py"
+
+
+@pytest.mark.integration
+def test_get_conversation_rejects_mismatched_analysis(client, analyzed_repository, monkeypatch):
+    analysis_id = analyzed_repository
+    mock_model(monkeypatch, [AIMessage(content="unused")])
+
+    conversations = client.get(f"/api/v1/analyses/{analysis_id}/conversations").json()
+    assert conversations == []
+
+    response = client.get(f"/api/v1/analyses/{uuid4()}/conversations/{uuid4()}")
+    assert response.status_code == 404

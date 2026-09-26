@@ -28,6 +28,7 @@ services:
     command: >
       sh -c "alembic upgrade head &&
              uvicorn sourcelens.main:app --host 0.0.0.0 --port 8000"
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://sourcelens:sourcelens@postgres:5432/sourcelens
       REDIS_URL: redis://redis:6379/0
@@ -51,6 +52,7 @@ services:
   worker:
     build: .
     command: ["celery", "-A", "sourcelens.jobs.celery_app", "worker", "--loglevel=INFO", "-Q", "ingestion"]
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://sourcelens:sourcelens@postgres:5432/sourcelens
       REDIS_URL: redis://redis:6379/0
