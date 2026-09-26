@@ -5,7 +5,12 @@ import pytest
 from sourcelens.api.errors import DomainError
 from sourcelens.config import Settings
 from sourcelens.persistence.models import EMBEDDING_DIMENSIONS
-from sourcelens.retrieval.embeddings import HashingEmbeddings, get_embedding_provider
+from sourcelens.retrieval.embeddings import (
+    HashingEmbeddings,
+    OpenAIEmbeddings,
+    VoyageEmbeddings,
+    get_embedding_provider,
+)
 
 
 def test_hashing_embeddings_are_deterministic_and_normalized():
@@ -51,3 +56,22 @@ def test_get_embedding_provider_rejects_unknown_providers():
     settings = Settings(embedding_provider="not-a-real-provider")
     with pytest.raises(DomainError, match="Unknown embedding provider"):
         get_embedding_provider(settings)
+
+
+def test_get_embedding_provider_requires_an_api_key_for_openai():
+    settings = Settings(embedding_provider="openai", openai_api_key=None)
+    with pytest.raises(DomainError, match="OPENAI_API_KEY"):
+        get_embedding_provider(settings)
+
+
+def test_get_embedding_provider_selects_openai_when_configured():
+    settings = Settings(embedding_provider="openai", openai_api_key="sk-test")
+    provider = get_embedding_provider(settings)
+    assert isinstance(provider, OpenAIEmbeddings)
+    assert provider.model == "text-embedding-3-small"
+    assert str(EMBEDDING_DIMENSIONS) in provider.name
+
+
+def test_get_embedding_provider_selects_voyage_when_configured():
+    settings = Settings(embedding_provider="voyage", voyage_api_key="vk-test")
+    assert isinstance(get_embedding_provider(settings), VoyageEmbeddings)

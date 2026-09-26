@@ -22,6 +22,8 @@ MODEL_PRICING_PER_MILLION_TOKENS: dict[str, tuple[float, float]] = {
     "claude-opus-5": (15.0, 75.0),
     "claude-haiku-4-5-20251001": (0.8, 4.0),
     "claude-fable-5-1": (3.0, 15.0),
+    "gpt-4o": (2.5, 10.0),
+    "gpt-4o-mini": (0.15, 0.6),
 }
 
 

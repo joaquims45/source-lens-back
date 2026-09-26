@@ -47,12 +47,15 @@ repository is never sent to an LLM wholesale.
 The default `EmbeddingProvider` is a deterministic, offline hashing scheme
 (feature hashing over identifier-like tokens), not a trained code-embedding
 model — it needs no API key, so the whole pipeline runs locally end to end.
-`VoyageEmbeddings` (Voyage's code embedding API) is implemented behind the
-same interface; set `EMBEDDING_PROVIDER=voyage` and `VOYAGE_API_KEY` to use
-it. Swapping providers to a different vector dimension needs a new
-migration, since `pgvector` columns are fixed-dimension. The reranker is
-similarly a token-overlap baseline behind a `Reranker` protocol a
-cross-encoder or hosted rerank API could swap into later.
+`VoyageEmbeddings` (Voyage's code embedding API) and `OpenAIEmbeddings`
+(OpenAI's embeddings API) are implemented behind the same interface; set
+`EMBEDDING_PROVIDER=voyage`/`VOYAGE_API_KEY` or `EMBEDDING_PROVIDER=openai`/
+`OPENAI_API_KEY` to use one of them. OpenAI's `text-embedding-3-*` models
+are requested with `dimensions` set to the schema's fixed width, so they
+drop in without a new migration; Voyage's response dimension must already
+match it. The reranker is similarly a token-overlap baseline behind a
+`Reranker` protocol a cross-encoder or hosted rerank API could swap into
+later.
 
 `python -m sourcelens.evaluation.run` measures Recall@K, MRR and latency for
 an already-ingested analysis against a `{question, expected_files}` dataset,
@@ -100,11 +103,14 @@ stream of validated, structured blocks (`tool_call`, `evidence`, `answer`,
 `done`) rather than raw token fragments.
 
 The default chat model is Anthropic's API via `langchain-anthropic`
-(`ANTHROPIC_API_KEY` required); without a key, `/chat` and `/chat/stream`
-fail clearly (`agent_unconfigured`) while every other endpoint keeps
-working. The whole graph — tool loop, evidence dedup, iteration cap — is
-independently tested with a scripted fake chat model, the same
-offline-first pattern used for embeddings.
+(`ANTHROPIC_API_KEY` required); set `AGENT_PROVIDER=openai` and
+`OPENAI_API_KEY` to use OpenAI's API via `langchain-openai` instead — both
+implement the same `BaseChatModel` interface, so no agent or tool code
+changes. Without a matching key for whichever provider is selected, `/chat`
+and `/chat/stream` fail clearly (`agent_unconfigured`) while every other
+endpoint keeps working. The whole graph — tool loop, evidence dedup,
+iteration cap — is independently tested with a scripted fake chat model,
+the same offline-first pattern used for embeddings.
 
 ### Architecture intelligence
 

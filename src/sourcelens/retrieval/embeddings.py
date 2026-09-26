@@ -79,15 +79,50 @@ class VoyageEmbeddings:
         return embeddings
 
 
+class OpenAIEmbeddings:
+    """OpenAI's embeddings API. Requires `OPENAI_API_KEY`. Requests exactly
+    `EMBEDDING_DIMENSIONS` back via the `dimensions` parameter that
+    `text-embedding-3-*` models support (truncating their native, larger
+    embedding), so this fits the existing fixed-width `pgvector` column
+    with no schema migration.
+    """
+
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.name = f"openai:{model}:{EMBEDDING_DIMENSIONS}"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        response = httpx.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={"input": texts, "model": self.model, "dimensions": EMBEDDING_DIMENSIONS},
+            timeout=30,
+        )
+        response.raise_for_status()
+        embeddings = [item["embedding"] for item in response.json()["data"]]
+        for embedding in embeddings:
+            if len(embedding) != EMBEDDING_DIMENSIONS:
+                raise DomainError(
+                    "embedding_dimension_mismatch",
+                    f"{self.name} returned {len(embedding)} dimensions, "
+                    f"schema expects {EMBEDDING_DIMENSIONS}",
+                    500,
+                )
+        return embeddings
+
+
 def get_embedding_provider(settings: Settings) -> EmbeddingProvider:
     if settings.embedding_provider == "hashing":
         return HashingEmbeddings()
     if settings.embedding_provider == "voyage":
         if not settings.voyage_api_key:
-            raise DomainError(
-                "embedding_provider_unconfigured", "VOYAGE_API_KEY is not set", 500
-            )
+            raise DomainError("embedding_provider_unconfigured", "VOYAGE_API_KEY is not set", 500)
         return VoyageEmbeddings(settings.voyage_api_key, settings.voyage_model)
+    if settings.embedding_provider == "openai":
+        if not settings.openai_api_key:
+            raise DomainError("embedding_provider_unconfigured", "OPENAI_API_KEY is not set", 500)
+        return OpenAIEmbeddings(settings.openai_api_key, settings.openai_embedding_model)
     raise DomainError(
         "embedding_provider_unknown",
         f"Unknown embedding provider {settings.embedding_provider!r}",
