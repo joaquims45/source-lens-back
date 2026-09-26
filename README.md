@@ -1,4 +1,4 @@
-# source-lens-api
+# source-lens-back
 
 Evidence-first repository intelligence backend for **SourceLens** — clone a
 public GitHub repository, understand its code, search it, ask questions
